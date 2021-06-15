@@ -93,47 +93,23 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     @Override
     public void interceptPacket( final Packet packet, final Session session, final boolean incoming, final boolean processed ) throws PacketRejectedException
     {
-        if ( incoming ) {
-            return;
-        }
-
-        if ( !processed ) {
-            return;
-        }
-
         if ( !(packet instanceof Message)) {
             return;
         }
 
-        final String body = ((Message) packet).getBody();
-        if ( body == null || body.isEmpty() )
-        {
-            return;
-        }
+        final Message message = (Message) packet;
 
-        if (!(session instanceof ClientSession)) {
-            return;
-        }
+        if ( !processed ) {
+            if (message.getType() == Message.Type.error) {
+                throw new PacketRejectedException("Packet rejected for bounced messages!");
+            }
 
-        if (((ClientSession) session).isAnonymousUser()) {
-            return;
+            if ( isReceipt(message) ) {
+                if ( incoming ) {
+                    message.setBody("_");
+                }
+            }
         }
-
-        final User user;
-        String username = null;
-        try
-        {
-            username = ((ClientSession) session).getUsername();
-            user = XMPPServer.getInstance().getUserManager().getUser( username );
-        }
-        catch ( UserNotFoundException e )
-        {
-            Log.debug( "Not a recognized user: " + username, e );
-            return;
-        }
-
-        Log.trace( "If user '{}' has push services configured, pushes need to be sent for a message that just arrived.", user );
-        tryPushNotification( user, (Message) packet );
     }
 
     private void tryPushNotification( User user, Message message )
@@ -214,6 +190,9 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
                     notification.add(notificationForm.getElement());
                 }
 
+                final Element messageIdElement = notification.addElement(QName.get( "messageId", "siper:push:0" ));
+                messageIdElement.setText(message.getID());
+
                 if ( publishOptions != null )
                 {
                     Log.trace( "For user '{}', found publish options for node '{}' of service '{}'", new Object[] { user.toString(), node, service });
@@ -241,7 +220,24 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
      */
     @Override
     public void messageBounced( final Message message )
-    {}
+    {
+        if ( isReceipt(message) || message.getBody() == null || message.getBody().isEmpty() )
+        {
+            return;
+        }
+
+        Log.debug( "Message bounced. Try to send push notification." );
+        final User user;
+        try
+        {
+            user = XMPPServer.getInstance().getUserManager().getUser( message.getTo().getNode() );
+            tryPushNotification( user, message );
+        }
+        catch ( UserNotFoundException e )
+        {
+            Log.error( "Unable to find local user '{}'.", message.getTo().getNode(), e );
+        }
+    }
 
     /**
      * Notification message indicating that a message was stored offline since the target entity
@@ -252,7 +248,7 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     @Override
     public void messageStored( final OfflineMessage message )
     {
-        if ( message.getBody() == null || message.getBody().isEmpty() )
+        if ( isReceipt(message) || message.getBody() == null || message.getBody().isEmpty() )
         {
             return;
         }
@@ -432,5 +428,16 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     public static String getMessageIdentifier( final User user, final Message message )
     {
         return user.getUsername() + "->" + (message.getID() != null ? message.getID() : "") + message.getFrom().hashCode() + message.getBody().hashCode();
+    }
+
+    private static boolean isReceipt(final Message message)
+    {
+        boolean result = false;
+        if ((message.getExtension("received", "urn:xmpp:receipts") != null) || (message.getExtension("seen", "urn:xmpp:receipts")) != null)
+        {
+            result = true;
+        }
+
+        return result;
     }
 }
