@@ -22,11 +22,11 @@ import org.jivesoftware.openfire.OfflineMessageListener;
 import org.jivesoftware.openfire.XMPPServer;
 import org.jivesoftware.openfire.interceptor.PacketInterceptor;
 import org.jivesoftware.openfire.interceptor.PacketRejectedException;
-import org.jivesoftware.openfire.session.ClientSession;
 import org.jivesoftware.openfire.session.Session;
 import org.jivesoftware.openfire.user.User;
 import org.jivesoftware.openfire.user.UserNotFoundException;
 import org.jivesoftware.util.JiveGlobals;
+import org.jivesoftware.util.XMPPDateTimeFormat;
 import org.jivesoftware.util.cache.Cache;
 import org.jivesoftware.util.cache.CacheFactory;
 import org.slf4j.Logger;
@@ -93,26 +93,50 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     @Override
     public void interceptPacket( final Packet packet, final Session session, final boolean incoming, final boolean processed ) throws PacketRejectedException
     {
-        if ( !(packet instanceof Message)) {
-            return;
-        }
-
-        final Message message = (Message) packet;
-
-        if ( !processed ) {
-            if (message.getType() == Message.Type.error) {
-                throw new PacketRejectedException("Packet rejected for bounced messages!");
-            }
-
-            if ( isReceipt(message) ) {
-                if ( incoming ) {
-                    message.setBody("_");
-                }
-            }
-        }
+//        if ( incoming ) {
+//            return;
+//        }
+//
+//        if ( !processed ) {
+//            return;
+//        }
+//
+//        if ( !(packet instanceof Message)) {
+//            return;
+//        }
+//
+//        final String body = ((Message) packet).getBody();
+//        if ( body == null || body.isEmpty() )
+//        {
+//            return;
+//        }
+//
+//        if (!(session instanceof ClientSession)) {
+//            return;
+//        }
+//
+//        if (((ClientSession) session).isAnonymousUser()) {
+//            return;
+//        }
+//
+//        final User user;
+//        String username = null;
+//        try
+//        {
+//            username = ((ClientSession) session).getUsername();
+//            user = XMPPServer.getInstance().getUserManager().getUser( username );
+//        }
+//        catch ( UserNotFoundException e )
+//        {
+//            Log.debug( "Not a recognized user: " + username, e );
+//            return;
+//        }
+//
+//        Log.trace( "If user '{}' has push services configured, pushes need to be sent for a message that just arrived.", user );
+//        tryPushNotification( user, (Message) packet );
     }
 
-    private void tryPushNotification( User user, Message message )
+    private void tryPushNotification( User user, OfflineMessage message )
     {
         final Map<JID, Map<String, Element>> serviceNodes;
         try
@@ -191,7 +215,7 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
                 }
 
                 final Element messageIdElement = notification.addElement(QName.get( "messageId", "siper:push:0" ));
-                messageIdElement.setText(message.getID());
+                messageIdElement.setText(XMPPDateTimeFormat.format(message.getCreationDate()));
 
                 if ( publishOptions != null )
                 {
@@ -220,24 +244,7 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
      */
     @Override
     public void messageBounced( final Message message )
-    {
-        if ( isReceipt(message) || message.getBody() == null || message.getBody().isEmpty() )
-        {
-            return;
-        }
-
-        Log.debug( "Message bounced. Try to send push notification." );
-        final User user;
-        try
-        {
-            user = XMPPServer.getInstance().getUserManager().getUser( message.getTo().getNode() );
-            tryPushNotification( user, message );
-        }
-        catch ( UserNotFoundException e )
-        {
-            Log.error( "Unable to find local user '{}'.", message.getTo().getNode(), e );
-        }
-    }
+    {}
 
     /**
      * Notification message indicating that a message was stored offline since the target entity
@@ -248,7 +255,7 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     @Override
     public void messageStored( final OfflineMessage message )
     {
-        if ( isReceipt(message) || message.getBody() == null || message.getBody().isEmpty() )
+        if ( message.getBody() == null || message.getBody().isEmpty() )
         {
             return;
         }
@@ -428,16 +435,5 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     public static String getMessageIdentifier( final User user, final Message message )
     {
         return user.getUsername() + "->" + (message.getID() != null ? message.getID() : "") + message.getFrom().hashCode() + message.getBody().hashCode();
-    }
-
-    private static boolean isReceipt(final Message message)
-    {
-        boolean result = false;
-        if ((message.getExtension("received", "urn:xmpp:receipts") != null) || (message.getExtension("seen", "urn:xmpp:receipts")) != null)
-        {
-            result = true;
-        }
-
-        return result;
     }
 }
