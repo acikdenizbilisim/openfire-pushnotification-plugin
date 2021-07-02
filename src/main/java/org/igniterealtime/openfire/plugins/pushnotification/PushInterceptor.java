@@ -138,18 +138,25 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
 
     private void tryPushNotification( User user, OfflineMessage message )
     {
+        final String resource = message.getTo().getResource();
+
+        if ( resource == null )
+        {
+            return;
+        }
+
         final Map<JID, Map<String, Element>> serviceNodes;
         try
         {
-            serviceNodes = PushServiceManager.getServiceNodes( user );
-            Log.trace( "For user '{}', {} push service(s) are configured.", user.toString(), serviceNodes.size() );
+            serviceNodes = PushServiceManager.getServiceNodes( user, resource );
+            Log.trace( "For user '{}' with resource '{}', {} push service(s) are configured.", user.toString(), resource, serviceNodes.size() );
             if (serviceNodes.isEmpty()) {
                 return;
             }
         }
         catch ( Exception e )
         {
-            Log.warn( "An exception occurred while obtain push notification service nodes for user '{}'. If the user has push notifications enabled, these have not been sent.", user.toString(), e );
+            Log.warn( "An exception occurred while obtain push notification service nodes for user '{}' with resource '{}'. If the user has push notifications enabled, these have not been sent.", user.toString(), resource, e );
             return;
         }
 
@@ -157,17 +164,17 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
         final Lock lock = CacheFactory.getLock(user.getUsername(), MESSAGES_BY_USER);
         lock.lock();
         try {
-            if ( wasPushAttemptedFor( user, message, Duration.ofMinutes(5)) ) {
-                Log.debug( "For user '{}', not re-attempting push for this message that already had a push attempt recently.", user.toString() );
+            if ( wasPushAttemptedFor( user, resource, message, Duration.ofMinutes(5)) ) {
+                Log.debug( "For user '{}' with resource '{}', not re-attempting push for this message that already had a push attempt recently.", user.toString(), resource );
                 return;
             }
 
             if ( attemptsForLast(user, Duration.ofSeconds(1)) > JiveGlobals.getIntProperty( "pushnotifications.max-per-second", 5 ) ) {
-                Log.debug( "For user '{}', skipping push, as user is over the rate limit of 5 push attempts per second.", user.toString() );
+                Log.debug( "For user '{}' with resource '{}', skipping push, as user is over the rate limit of 5 push attempts per second.", user.toString(), resource );
                 return;
             }
 
-            addAttemptFor( user, message );
+            addAttemptFor( user, resource, message );
         } finally {
             lock.unlock();
         }
@@ -176,7 +183,7 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
         for ( final Map.Entry<JID, Map<String, Element>> serviceNode : serviceNodes.entrySet() )
         {
             final JID service = serviceNode.getKey();
-            Log.trace( "For user '{}', found service '{}'", user.toString(), service );
+            Log.trace( "For user '{}' with resource '{}', found service '{}'", user.toString(), resource, service );
 
             final Map<String, Element> nodes = serviceNode.getValue();
             for ( final Map.Entry<String, Element> nodeConfig : nodes.entrySet() )
@@ -184,7 +191,7 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
                 final String node = nodeConfig.getKey();
                 final Element publishOptions = nodeConfig.getValue();
 
-                Log.trace( "For user '{}', found node '{}' of service '{}'", new Object[] { user.toString(), node, service });
+                Log.trace( "For user '{}' with resource '{}', found node '{}' of service '{}'", new Object[] { user.toString(), resource, node, service });
                 final IQ push = new IQ( IQ.Type.set );
                 push.setTo( service );
                 push.setFrom( XMPPServer.getInstance().getServerInfo().getXMPPDomain() );
@@ -219,19 +226,19 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
 
                 if ( publishOptions != null )
                 {
-                    Log.trace( "For user '{}', found publish options for node '{}' of service '{}'", new Object[] { user.toString(), node, service });
+                    Log.trace( "For user '{}' with resource '{}', found publish options for node '{}' of service '{}'", new Object[] { user.toString(), resource, node, service });
                     final Element pubOptEl = push.getChildElement().addElement( "publish-options" );
                     pubOptEl.add( publishOptions );
                 }
                 try
                 {
-                    Log.trace( "For user '{}', Routing push notification to '{}'", user.toString(), push.getTo() );
+                    Log.trace( "For user '{}' with resource '{}', Routing push notification to '{}'", user.toString(), resource, push.getTo() );
                     XMPPServer.getInstance().getRoutingTable().routePacket( push.getTo(), push, true );
                 } catch ( Exception e ) {
-                    Log.warn( "An exception occurred while trying to deliver a notification for user '{}' to node '{}' on service '{}'.", new Object[] { user, node, service, e } );
+                    Log.warn( "An exception occurred while trying to deliver a notification for user '{}' with resource '{}' to node '{}' on service '{}'.", new Object[] { user, resource, node, service, e } );
                 }
 
-                Log.debug( "Delivered a notification for user '{}' to node '{}' on service '{}'.", new Object[] { user, node, service } );
+                Log.debug( "Delivered a notification for user '{}' with resource '{}' to node '{}' on service '{}'.", new Object[] { user, resource, node, service } );
             }
         }
     }
@@ -282,9 +289,9 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
      * @param duration The past amount of time in which to check for sent push notifications
      * @return true when at least one push attempt for the user/message was recently sent.
      */
-    public boolean wasPushAttemptedFor( final User user, final Message message, final Duration duration )
+    public boolean wasPushAttemptedFor( final User user, final String resource, final Message message, final Duration duration )
     {
-        final String identifier = getMessageIdentifier(user, message);
+        final String identifier = getMessageIdentifier(user, resource, message);
 
         final Lock lock = CacheFactory.getLock(user.getUsername(), MESSAGES_BY_USER);
         lock.lock();
@@ -346,9 +353,9 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
      * @param user The user that would receive the push notification
      * @param message The message for which a push notification has been sent
      */
-    public void addAttemptFor( final User user, final Message message )
+    public void addAttemptFor( final User user, final String resource, final Message message )
     {
-        final String identifier = getMessageIdentifier(user, message);
+        final String identifier = getMessageIdentifier(user, resource, message);
 
         final Lock lock = CacheFactory.getLock(user.getUsername(), MESSAGES_BY_USER);
         lock.lock();
@@ -432,8 +439,8 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     /**
      * Generates a reasonably unique identifier for a message / user combination.
      */
-    public static String getMessageIdentifier( final User user, final Message message )
+    public static String getMessageIdentifier( final User user, final String resource, final Message message )
     {
-        return user.getUsername() + "->" + (message.getID() != null ? message.getID() : "") + message.getFrom().hashCode() + message.getBody().hashCode();
+        return user.getUsername() + "->" + resource + "->" + (message.getID() != null ? message.getID() : "") + message.getFrom().hashCode() + message.getBody().hashCode();
     }
 }

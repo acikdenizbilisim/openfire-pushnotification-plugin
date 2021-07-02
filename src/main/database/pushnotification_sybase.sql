@@ -1,9 +1,10 @@
 CREATE TABLE ofPushNotiService (
   username              NVARCHAR(64)     NOT NULL,
+  resource              NVARCHAR(64)     NOT NULL,
   service               NVARCHAR(1024)   NOT NULL,
   node                  NVARCHAR(1024)   NOT NULL,
-  options			    TEXT             NULL
+  options			    TEXT             NULL,
+  CONSTRAINT ofPushNotiService_pk PRIMARY KEY (username, resource)
 );
-CREATE INDEX ofPushNoti_idx ON ofPushNotiService (username);
 
 INSERT INTO ofVersion (name, version) VALUES ('pushnotification', 1);

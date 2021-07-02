@@ -35,20 +35,24 @@ public class PushServiceManager
 {
     public static final Logger Log = LoggerFactory.getLogger( PushServiceManager.class );
 
-    public static void register( final User user, final JID pushService, final String node, final Element publishOptions ) throws SQLException
+    public static void register( final User user, final String resource, final JID pushService, final String node, final Element publishOptions ) throws SQLException
     {
-        Log.debug( "Registering user '{}' to node '{}' of service '{}'.", new Object[] { user.getUsername(), node, pushService.toString() } );
+        Log.debug( "Registering user '{}' with resource '{}' to node '{}' of service '{}'.", new Object[] { user.getUsername(), resource, node, pushService.toString() } );
 
         Connection connection = null;
         PreparedStatement pstmt = null;
         try
         {
             connection = DbConnectionManager.getConnection();
-            pstmt = connection.prepareStatement( "INSERT INTO ofPushNotiService (username, service, node, options) VALUES(?,?,?,?) " );
+            pstmt = connection.prepareStatement( "INSERT INTO ofPushNotiService (username, resource, service, node, options) VALUES (?,?,?,?,?) ON DUPLICATE KEY UPDATE service = ?, node = ?, options = ?" );
             pstmt.setString( 1, user.getUsername() );
-            pstmt.setString( 2, pushService.toString() );
-            pstmt.setString( 3, node );
-            pstmt.setString( 4, publishOptions == null ? null : publishOptions.asXML() );
+            pstmt.setString( 2, resource);
+            pstmt.setString( 3, pushService.toString() );
+            pstmt.setString( 4, node );
+            pstmt.setString( 5, publishOptions == null ? null : publishOptions.asXML() );
+            pstmt.setString( 6, pushService.toString() );
+            pstmt.setString( 7, node );
+            pstmt.setString( 8, publishOptions == null ? null : publishOptions.asXML() );
             pstmt.execute();
         }
         finally
@@ -133,7 +137,7 @@ public class PushServiceManager
         }
     }
 
-    public static Map<JID,Map<String, Element>> getServiceNodes( final User user ) throws SQLException
+    public static Map<JID,Map<String, Element>> getServiceNodes( final User user, final String resource ) throws SQLException
     {
         final Map<JID, Map<String, Element>> result = new HashMap<>();
 
@@ -143,8 +147,9 @@ public class PushServiceManager
         try
         {
             connection = DbConnectionManager.getConnection();
-            pstmt = connection.prepareStatement( "SELECT service, node, options FROM ofPushNotiService WHERE username = ?" );
+            pstmt = connection.prepareStatement( "SELECT service, node, options FROM ofPushNotiService WHERE username = ? AND resource = ?" );
             pstmt.setString( 1, user.getUsername() );
+            pstmt.setString( 2, resource );
             rs = pstmt.executeQuery();
             while ( rs.next() )
             {
