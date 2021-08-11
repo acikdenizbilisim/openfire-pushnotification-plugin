@@ -262,6 +262,10 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
     @Override
     public void messageStored( final OfflineMessage message )
     {
+        if (message.getChildElement("no-push", "urn:xmpp:hints") != null) {
+            return;
+        }
+
         if ( message.getBody() == null || message.getBody().isEmpty() )
         {
             return;
