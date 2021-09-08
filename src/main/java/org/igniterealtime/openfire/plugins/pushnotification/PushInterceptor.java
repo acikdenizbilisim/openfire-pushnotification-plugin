@@ -266,6 +266,10 @@ public class PushInterceptor implements PacketInterceptor, OfflineMessageListene
             return;
         }
 
+        if (message.getChildElement("delay", "urn:xmpp:delay") != null) {
+            return;
+        }
+
         if ( message.getBody() == null || message.getBody().isEmpty() )
         {
             return;
